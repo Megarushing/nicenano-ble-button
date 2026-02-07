@@ -6,6 +6,7 @@ Simple Arduino code for a NRF52840 using BTHome and a GPIO on/off characteristic
 - Advertises BTHome v2 service data (battery %, GPIO switch state, USB power present)
 - Exposes Nordic LED Button Service (LBS) characteristics for GPIO on/off control
 - Targets nice!nano v2 (nRF52840) with main GPIO on P0.17 and built-in LED on P0.15 as a mirror indicator
+- GPIO control write values (LBS GPIO characteristic): `0` = off, `1` = on (latched), `2` = pulse (for `GPIO_PULSE_MS`)
 
 ## Arduino IDE setup (required)
 The project uses the Adafruit nRF52 Arduino core with a Nice!Nano v2 fork. Follow these steps exactly.

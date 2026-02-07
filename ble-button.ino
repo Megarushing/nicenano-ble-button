@@ -348,10 +348,19 @@ void gpio_write_cb(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uin
   if (len == 0) return;
 #endif
 
-  bool requested_on = (data[0] != 0x00);
+  uint8_t requested = data[0];
 
   (void)chr;
-  setGpioState(requested_on ? 1 : 0);
+  if (requested == 0x00) {
+    setGpioState(0);
+    pulse_deadline_ms = 0;
+  } else if (requested == 0x01) {
+    setGpioState(1);
+    pulse_deadline_ms = 0;
+  } else if (requested == 0x02) {
+    setGpioState(1);
+    pulse_deadline_ms = millis() + GPIO_PULSE_MS;
+  }
 
   // Another wake moment: refresh battery opportunistically (no periodic timer)
   refreshBatteryIfChanged(false);
@@ -359,16 +368,10 @@ void gpio_write_cb(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uin
   // Update BTHome broadcast ASAP so HA sees new state
   requestAdvertisingUpdate(false);
 
-  if (requested_on) {
 #if DEBUG_LOG
+  if (requested == 0x02) {
     LOGLN("GPIO: ON (pulse)");
-#endif
-    pulse_deadline_ms = millis() + GPIO_PULSE_MS;
-  } else {
-    pulse_deadline_ms = 0;
   }
-
-#if DEBUG_LOG
   LOGLN(gpio_state ? "GPIO: ON" : "GPIO: OFF");
   LOGLN("BLE: disconnecting to save power");
 #endif
