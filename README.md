@@ -1,11 +1,11 @@
 # BLE Button (nice!nano v2)
 
-Simple Arduino code for a NRF52840 using BTHome and a GPIO on/off characteristic.
+Simple Arduino code for a NRF52840 using BTHome and a GPIO on/off characteristic (P0.17), with the onboard LED as an indicator.
 
 ## Overview
-- Advertises BTHome v2 service data (battery %, switch state, USB power present)
-- Exposes Nordic LED Button Service (LBS) characteristics for on/off control
-- Targets nice!nano v2 (nRF52840) with built-in LED on P0.15
+- Advertises BTHome v2 service data (battery %, GPIO switch state, USB power present)
+- Exposes Nordic LED Button Service (LBS) characteristics for GPIO on/off control
+- Targets nice!nano v2 (nRF52840) with main GPIO on P0.17 and built-in LED on P0.15 as a mirror indicator
 
 ## Arduino IDE setup (required)
 The project uses the Adafruit nRF52 Arduino core with a Nice!Nano v2 fork. Follow these steps exactly.

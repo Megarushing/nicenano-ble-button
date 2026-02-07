@@ -25,9 +25,14 @@
 
 // -------------------- Pins --------------------
 
-// User LED (P0.15)
+// Indicator LED (P0.15) - shows GPIO state
 #ifndef LED_BUILTIN
   #define LED_BUILTIN 15
+#endif
+
+// Main GPIO output (P0.17)
+#ifndef GPIO_MAIN_PIN
+  #define GPIO_MAIN_PIN 17
 #endif
 
 // nice!nano v2: battery is read internally via VDDH/5 (no external divider).
@@ -45,9 +50,9 @@
   #define VBAT_FULL 4.20f
 #endif
 
-// LED pulse duration (ms)
-#ifndef LED_PULSE_MS
-  #define LED_PULSE_MS 1000
+// GPIO pulse duration (ms)
+#ifndef GPIO_PULSE_MS
+  #define GPIO_PULSE_MS 1000
 #endif
 
 // Only publish battery if it changes by >= this many percent
@@ -59,7 +64,7 @@
 // Nordic LED Button Service (LBS) UUIDs (for HA control via GATT write)
 BLEService        lbsService("00001523-1212-EFDE-1523-785FEABCD123");
 BLECharacteristic btnChar   ("00001524-1212-EFDE-1523-785FEABCD123");
-BLECharacteristic ledChar   ("00001525-1212-EFDE-1523-785FEABCD123");
+BLECharacteristic gpioChar  ("00001525-1212-EFDE-1523-785FEABCD123");
 
 // -------------------- BTHome --------------------
 // BTHome uses Service Data (16-bit UUID) with UUID 0xFCD2. :contentReference[oaicite:2]{index=2}
@@ -69,12 +74,12 @@ static const uint8_t  BTHOME_DEVINFO_V2_NOENC_TRIGGER = 0x44;
 
 // Object IDs in ascending order. :contentReference[oaicite:4]{index=4}
 static const uint8_t  BTHOME_OBJ_BATTERY = 0x01; // uint8 percent
-static const uint8_t  BTHOME_OBJ_SWITCH  = 0x0F; // uint8 boolean (LED state, generic binary sensor)
+static const uint8_t  BTHOME_OBJ_SWITCH  = 0x0F; // uint8 boolean (GPIO state, generic binary sensor)
 static const uint8_t  BTHOME_OBJ_BATT_CHG = 0x16; // uint8 boolean (battery charging / USB power present)
 
 // -------------------- State --------------------
-// Keep LED state in a uint8 buffer so the GATT READ returns the live value.
-static uint8_t led_state = 0;
+// Keep GPIO state in a uint8 buffer so the GATT READ returns the live value.
+static uint8_t gpio_state = 0;
 static uint8_t button_state = 0;
 static uint8_t batt_percent = 0;
 static uint8_t usb_power_present = 0;
@@ -88,7 +93,8 @@ void refreshBatteryIfChanged(bool force);
 void rebuildAdvertising(bool log_it);
 void requestAdvertisingUpdate(bool log_it);
 void rebuildAdvertisingIfDirty();
-void led_write_cb(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint16_t len);
+void gpio_write_cb(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint16_t len);
+void setGpioState(uint8_t on);
 
 static float clampf(float x, float lo, float hi) {
   if (x < lo) return lo;
@@ -143,6 +149,12 @@ static uint8_t readUsbPowerPresent() {
 #endif
 }
 
+void setGpioState(uint8_t on) {
+  gpio_state = on ? 1 : 0;
+  digitalWrite(GPIO_MAIN_PIN, gpio_state ? HIGH : LOW);
+  digitalWrite(LED_BUILTIN, gpio_state ? HIGH : LOW);
+}
+
 void refreshBatteryIfChanged(bool force) {
   uint8_t new_pct = readBatteryPercent();
   uint8_t new_usb = readUsbPowerPresent();
@@ -168,8 +180,8 @@ void refreshBatteryIfChanged(bool force) {
 
 void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
-  led_state = 0;
-  digitalWrite(LED_BUILTIN, led_state ? HIGH : LOW);
+  pinMode(GPIO_MAIN_PIN, OUTPUT);
+  setGpioState(0);
 
   analogReadResolution(10);
 
@@ -212,12 +224,12 @@ void setup() {
   btnChar.begin();
   btnChar.write8(button_state);
 
-  ledChar.setProperties(CHR_PROPS_READ | CHR_PROPS_WRITE | CHR_PROPS_WRITE_WO_RESP);
-  ledChar.setPermission(SECMODE_OPEN, SECMODE_OPEN);
-  ledChar.setFixedLen(1);
-  ledChar.setWriteCallback(led_write_cb);
-  ledChar.setBuffer(&led_state, sizeof(led_state));
-  ledChar.begin();
+  gpioChar.setProperties(CHR_PROPS_READ | CHR_PROPS_WRITE | CHR_PROPS_WRITE_WO_RESP);
+  gpioChar.setPermission(SECMODE_OPEN, SECMODE_OPEN);
+  gpioChar.setFixedLen(1);
+  gpioChar.setWriteCallback(gpio_write_cb);
+  gpioChar.setBuffer(&gpio_state, sizeof(gpio_state));
+  gpioChar.begin();
 
   // Initial battery reading + start advertising
   batt_percent = readBatteryPercent();
@@ -232,12 +244,11 @@ void setup() {
 void loop() {
   if (pulse_deadline_ms != 0) {
     if ((int32_t)(millis() - pulse_deadline_ms) >= 0) {
-      led_state = 0;
-      digitalWrite(LED_BUILTIN, LOW);
+      setGpioState(0);
       pulse_deadline_ms = 0;
       requestAdvertisingUpdate(false);
 #if DEBUG_LOG
-      LOGLN("LED: OFF (pulse complete)");
+      LOGLN("GPIO: OFF (pulse complete)");
 #endif
     } else {
       delay(100);
@@ -273,7 +284,7 @@ void rebuildAdvertising(bool log_it) {
   svcdata[i++] = BTHOME_OBJ_BATTERY;
   svcdata[i++] = batt_percent;
   svcdata[i++] = BTHOME_OBJ_SWITCH;
-  svcdata[i++] = led_state ? 1 : 0;
+  svcdata[i++] = gpio_state ? 1 : 0;
   svcdata[i++] = BTHOME_OBJ_BATT_CHG;
   svcdata[i++] = usb_power_present ? 1 : 0;
 
@@ -300,8 +311,8 @@ void rebuildAdvertising(bool log_it) {
   if (log_it) {
     LOG("ADV: BTHome batt=");
     LOG((int)batt_percent);
-    LOG(" led=");
-    LOG(led_state ? "1" : "0");
+    LOG(" gpio=");
+    LOG(gpio_state ? "1" : "0");
     LOG(" usb=");
     LOGLN(usb_power_present ? "1" : "0");
   }
@@ -323,10 +334,10 @@ void rebuildAdvertisingIfDirty() {
   rebuildAdvertising(false);
 }
 
-// HA connects + writes; we update LED + update BTHome payload; then disconnect.
-void led_write_cb(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
+// HA connects + writes; we update GPIO + update BTHome payload; then disconnect.
+void gpio_write_cb(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
 #if DEBUG_LOG
-  LOG("GATT: LED write conn=");
+  LOG("GATT: GPIO write conn=");
   LOG(conn_hdl);
   LOG(" len=");
   LOG(len);
@@ -340,8 +351,7 @@ void led_write_cb(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint
   bool requested_on = (data[0] != 0x00);
 
   (void)chr;
-  led_state = requested_on ? 1 : 0;
-  digitalWrite(LED_BUILTIN, led_state ? HIGH : LOW);
+  setGpioState(requested_on ? 1 : 0);
 
   // Another wake moment: refresh battery opportunistically (no periodic timer)
   refreshBatteryIfChanged(false);
@@ -351,15 +361,15 @@ void led_write_cb(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint
 
   if (requested_on) {
 #if DEBUG_LOG
-    LOGLN("LED: ON (pulse)");
+    LOGLN("GPIO: ON (pulse)");
 #endif
-    pulse_deadline_ms = millis() + LED_PULSE_MS;
+    pulse_deadline_ms = millis() + GPIO_PULSE_MS;
   } else {
     pulse_deadline_ms = 0;
   }
 
 #if DEBUG_LOG
-  LOGLN(led_state ? "LED: ON" : "LED: OFF");
+  LOGLN(gpio_state ? "GPIO: ON" : "GPIO: OFF");
   LOGLN("BLE: disconnecting to save power");
 #endif
 
