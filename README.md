@@ -66,3 +66,4 @@ pip3 install adafruit-nrfutil --user
 
 ## Notes
 - Set `DEBUG_LOG` to 0 for battery saving/production.
+- Current measured consumption is 7mA.
